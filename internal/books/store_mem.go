@@ -16,7 +16,7 @@ var (
 type Store interface {
 	Create(b *Book) (string, error)
 	Get(id string) (*Book, error)
-	List(filter Filter) ([]Book, error)
+	List(filter Filter) ([]Book, int, error)
 	Update(id string, patch Book) error
 	Delete(id string) error
 }
@@ -25,6 +25,8 @@ type Filter struct {
 	Name     string
 	Reading  *bool // nil = ignore
 	Finished *bool // nil = ignore
+	Limit 	  int
+	Offset 	  int
 }
 
 type memStore struct {
@@ -72,25 +74,31 @@ func (m *memStore) Get(id string) (*Book, error) {
 	return &v, nil
 }
 
-func (m *memStore) List(f Filter) ([]Book, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := make([]Book, 0, len(m.items))
-	needle := strings.ToLower(strings.TrimSpace(f.Name))
+func (m *memStore) List(f Filter) ([]Book, int, error) {
+  m.mu.RLock()
+  defer m.mu.RUnlock()
 
-	for _, b := range m.items {
-		if needle != "" && !strings.Contains(strings.ToLower(b.Name), needle) {
-			continue
-		}
-		if f.Reading != nil && b.Reading != *f.Reading {
-			continue
-		}
-		if f.Finished != nil && b.Finished != *f.Finished {
-			continue
-		}
-		out = append(out, b)
-	}
-	return out, nil
+  // filter
+  tmp := make([]Book, 0, len(m.items))
+  needle := strings.ToLower(strings.TrimSpace(f.Name))
+  for _, b := range m.items {
+    if needle != "" && !strings.Contains(strings.ToLower(b.Name), needle) {
+      continue
+    }
+    if f.Reading != nil && b.Reading != *f.Reading { continue }
+    if f.Finished != nil && b.Finished != *f.Finished { continue }
+    tmp = append(tmp, b)
+  }
+    total := len(tmp)
+
+    start := f.Offset
+    if start < 0 { start = 0 }
+    if start > total { start = total }
+
+    end := start + f.Limit
+    if f.Limit <= 0 || end > total { end = total }
+
+    return tmp[start:end], total, nil
 }
 
 func (m *memStore) Update(id string, patch Book) error {

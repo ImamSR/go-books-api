@@ -4,12 +4,13 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/your-username/go-books-api/internal/books"
+	"github.com/ImamSR/go-books-api/internal/books"
+	"github.com/ImamSR/go-books-api/internal/auth"
+	"github.com/ImamSR/go-books-api/internal/users"
 )
 
-func NewRouter(bh *books.Handler) http.Handler {
+func NewRouter(bh *books.Handler, uh *users.Handler) http.Handler {
 	r := chi.NewRouter()
-	// attach logging/other middlewares
 	r.Use(func(next http.Handler) http.Handler { return CommonMiddlewares(next) })
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -17,13 +18,24 @@ func NewRouter(bh *books.Handler) http.Handler {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	r.Route("/books", func(r chi.Router) {
-		r.Get("/", bh.List)
-		r.Post("/", bh.Create)
-		r.Get("/{id}", bh.Detail)
-		r.Put("/{id}", bh.Update)
-		r.Delete("/{id}", bh.Delete)
+	// auth
+	r.Route("/auth", func(ar chi.Router) {
+		ar.Post("/register", uh.Register)
+		ar.Post("/login", uh.Login)
 	})
+
+	// books (GET publik)
+	r.Get("/books", bh.List)
+	r.Get("/books/{id}", bh.Detail)
+
+	// books (write: require JWT + roles)
+	sec := auth.MustJWTSecret()
+	protected := chi.NewRouter()
+	protected.Use(auth.AuthJWT(sec))
+	protected.With(auth.RequireRoles("editor", "admin")).Post("/books", bh.Create)
+	protected.With(auth.RequireRoles("editor", "admin")).Put("/books/{id}", bh.Update)
+	protected.With(auth.RequireRoles("admin")).Delete("/books/{id}", bh.Delete)
+	r.Mount("/", protected)
 
 	return r
 }
